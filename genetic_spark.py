@@ -1,12 +1,15 @@
 import networkx as nx
 import random as rnd
+import Tkinter
+from Tkinter import *
 import matplotlib.pyplot as plt
 import numpy as np
 import multiprocessing as mp
+from node_values import node_values
 from numpy import sqrt
 from enum import Enum
 import findspark
-findspark.init("E:\Linux\spark-2.1.0-bin-hadoop2.7")
+findspark.init("/media/hugo/Datos/Linux/spark/")
 from pyspark import SparkContext, SparkConf, Row
 
 from pyspark.mllib.linalg import DenseVector
@@ -361,16 +364,14 @@ class HVSConnectivityGenetic():
         population = []
         for _ in range(0, self.size):
             chromosome = self.init_chromosome(sc)
-            population.append(chromosome)
-        return population
+            population.append(chromosome.collect())
+        return sc.parallelize(population)
 
+#<type 'list'>: [<node_values.node_values instance at 0x7f1588220ea8>, <node_values.node_values instance at 0x7f1588220f38>, <node_values.node_values instance at 0x7f1588225050>, <node_values.node_values instance at 0x7f1588225098>, <node_values.node_values instance at 0x7f15882250e0>, <node_values.node_values instance at 0x7f1588225128>, <node_values.node_values instance at 0x7f1588225170>, <node_values.node_values instance at 0x7f15882251b8>, <node_values.node_values instance at 0x7f1588225200>, <node_values.node_values instance at 0x7f1588225248>, <node_values.node_values instance at 0x7f1588225290>, <node_values.node_values instance at 0x7f15882252d8>, <node_values.node_values instance at 0x7f1588225320>, <node_values.node_values instance at 0x7f1588225368>, <node_values.node_values instance at 0x7f15882253b0>, <node_values.node_values instance at 0x7f15882253f8>, <node_values.node_values instance at 0x7f1588225440>, <node_values.node_values instance at 0x7f1588225488>, <node_values.node_values instance at 0x7f15882254d0>, <node_values.node_values instance at 0x7f1588225518>, <node_values.node_values instance at 0x7f1588225560>, <node_values.node_values instance at 0x7f15882255a8>, <node_values.node_values instance at 0x7f15882255f0>, <node_values.node_values instance at 0x7f1588225638>, <node_values.node_values instance at 0x7f1588225680>, <node_values.node_values instance at 0x7f15882256c8>, <node_values.node_values instance at 0x7f1588225710>, <node_values.node_values instance at 0x7f1588225758>, <node_values.node_values instance at 0x7f15882257a0>, <node_values.node_values instance at 0x7f15882257e8>, <node_values.node_values instance at 0x7f1588225830>, <node_values.node_values instance at 0x7f1588225878>, <node_values.node_values instance at 0x7f15882258c0>, <node_values.node_values instance at 0x7f1588225908>, <node_values.node_values instance at 0x7f1588225950>]
     def init_chromosome(self,sc):
-        chromosome = []
-
-        for i in range(0, len(self.graph_operations.get_HVSs().collect())):
-            value = rnd.randint(-1, len(self.graph_operations.get_HVSs()) - 1)
-            relation = node_values(i, [value, -1])
-            chromosome.append(relation)
+        long=self.graph_operations.get_HVSs().count()
+        chromosome = self.graph_operations.get_HVSs().zipWithIndex().map(
+            lambda x: node_values(x[1], [rnd.randint(-1, long - 1), -1]))
         return chromosome
 
     def fitness(self, chromosome):
@@ -418,6 +419,7 @@ class HVSConnectivityGenetic():
 
     def calculate_fitness(self, population):
         values = []
+        values=population.map(lambda x:self.fitness(x)).collect()
         for i in population:
             fit = self.fitness(i)
             values.append(fit)
@@ -1000,27 +1002,6 @@ def read_graph(sc):
             raise Exception('Matrix cannot be converted to square.')
     return nx.from_numpy_matrix(matrix)
 
-class node_values:
-    def __init__(self, iden, value):
-        self.iden = iden
-        self.value = value
-
-    def get_iden(self):
-        return self.iden
-
-    def set_iden(self, iden):
-        self.iden = iden
-
-    def get_value(self):
-        return self.value
-
-    def set_value(self, value):
-        self.value = value
-
-    def __str__(self):
-        iden = str(self.iden)
-        value = str(self.value)
-        return iden + ':' + value
 
 def main():
     conf = SparkConf().setAppName("hhhhuh")

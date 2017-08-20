@@ -173,6 +173,7 @@ class graph_operations:
         # Para cada hub vertice, comprobar si existe un HVS distinto al que pertenece
         #   con el que presente una mayor conectividad que al suyo propio.
         change = True
+        self.HVSs.map(lambda x:x)
         HVSs=self.HVSs.collect()
         while (change):
             change = False
@@ -190,7 +191,6 @@ class graph_operations:
                         #HVSs.map(lambda x: x).collect()[i].pop(j)
                         HVSs[i].pop(j)
                         HVSs[interconnection[0]].append(iden)
-                        print iden
                     else:
                         j = j + 1
                 if len(vertexes) == 0:
@@ -205,7 +205,7 @@ class graph_operations:
         while (change):
             change = False
             pops = []
-            for i in range(len(self.HVSs)):
+            for i in range((self.HVSs.count())):
                 hvs1 = self.HVSs.collect()[i]
                 j = i
                 while (j < self.HVSs.count()):
@@ -306,17 +306,11 @@ class graph_operations:
 
     # Motodo que elimina los HVSs con conectividad 1.
     def extractNodesWithOneVertex(self):
-        i = 0
-        while (i < len(self.HVSs)):
-            vertexes = self.HVSs[i]
-            if len(vertexes) <= 1:
-                self.non_hub_vertexes.append(vertexes[0])
-                self.HVSs.remove(vertexes)
-            else:
-                i = i + 1
+        self.non_hub_vertexes = self.HVSs.filter(lambda x: len(x) <= 1)
+        self.HVSs=self.HVSs.filter(lambda x:len(x)>1)
 
-                # Dado un nodo, devuelve el HVS al que mas se asemeja, y a cuyo cluster.
 
+    # Dado un nodo, devuelve el HVS al que mas se asemeja, y a cuyo cluster.
     def getMoreSimilarHVS(self, iden):
         max_position = -1
         max_similarity = 0.0
@@ -786,7 +780,7 @@ class NonHubGenetic():
                  margin_mutation=0.1, prob_mutation=0.4, artificial_mutation=True, mutation_accurancy=0.2):
         rnd.seed(0)
         self.graph_operations = graph_operations
-        self.target = len(self.graph_operations.get_non_hub_vertexes())
+        self.target = self.graph_operations.get_non_hub_vertexes().count
         self.counter = 0
         self.limit = limit
         self.size = size
@@ -798,19 +792,16 @@ class NonHubGenetic():
         self.mutation_accurancy = mutation_accurancy
         self.children = []
 
-    def init_population(self):
+    def init_population(self,sc):
         population = []
         for _ in range(0, self.size):
             chromosome = self.init_chromosome()
-            population.append(chromosome)
-        return population
+            population.append(chromosome.collect())
+        return sc.parallelize(population)
 
     def init_chromosome(self):
-        chromosome = []
-        for node in self.graph_operations.get_non_hub_vertexes():
-            value = rnd.randint(-1, len(self.graph_operations.get_HVSs()) - 1)
-            info = node_values(node, value)
-            chromosome.append(info)
+        count = self.graph_operations.get_HVSs().count()
+        chromosome = self.graph_operations.get_non_hub_vertexes().zipWithIndex().map(lambda x: node_values(x[0], rnd.randint(-1, count - 1)))
         return chromosome
 
     def fitness(self, chromo):
@@ -823,15 +814,13 @@ class NonHubGenetic():
 
     def calculate_fitness(self, population,sc):
         values = []
-
-        rddPopulation=sc.parallelize(population)
+        values=population.map(lambda x:self.fitness(x))
         #values.append(self.fitness(rddPopulation.map(lambda x:x)))
         for i in population:
             fit = self.fitness(i)
             values.append(fit)
         return values
-    def mifuncion(self,x):
-        print(x)
+
     def completed_evolution(self, values):
         for i in values:
             if i == self.target:
@@ -950,7 +939,7 @@ class NonHubGenetic():
 
     def evolution(self,sc):
         completed = False
-        population = self.init_population()
+        population = self.init_population(sc)
         fitness_values = self.calculate_fitness(population,sc)
         old_max_value = 0
         max_value = max(fitness_values)

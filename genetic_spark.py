@@ -54,7 +54,7 @@ class genetic_graph:
 
 
 class graph_operations:
-    def __init__(self, G, option=execution_type.static_part1):
+    def __init__(self, G, option=execution_type.dynamic):
         self.nodes = []
         self.G = G
         self.option = option
@@ -93,7 +93,7 @@ class graph_operations:
             connectivity = hvs_connectivity.evolution(sc)
             self.assignSolutiontoConnectivity(connectivity)
         else:
-            self.interconnectHVSs()
+            self.interconnectHVSs(sc)
         print("HVSs1", self.HVSs)
 
         if self.option == execution_type.static_part2 or self.option == execution_type.static:
@@ -169,31 +169,36 @@ class graph_operations:
         # Inicialmente, creamos un HVS por cada Hub Vertice.
         self.HVSs= self.hub_vertexes.map(lambda x: [x])
 
-    def interconnectHVSs(self):
+    def interconnectHVSs(self,sc):
         # Para cada hub vertice, comprobar si existe un HVS distinto al que pertenece
         #   con el que presente una mayor conectividad que al suyo propio.
         change = True
+        HVSs=self.HVSs.collect()
         while (change):
             change = False
             i = 0
-            while (i < len(self.HVSs)):
-                vertexes = self.HVSs[i]
+            while (i < len(HVSs)):
+                vertexes = HVSs[i]
                 j = 0
                 while (j < len(vertexes)):
                     iden = vertexes[j]
-                    intraconnection = self.getConnectionWithHVS(iden, self.HVSs[i])
+                    intraconnection = self.getConnectionWithHVS(iden, HVSs[i])
                     interconnection = self.getMaxConnectionWithHVSs(iden, intraconnection)
                     if interconnection[0] != -1 and interconnection[1] != 0:  # Existe otro HVS con el que se encuentra mas conectado.
                         # Cambiar al vortice de HVS.
                         change = True
-                        self.HVSs[i].pop(j)
-                        self.HVSs[interconnection[0]].append(iden)
+                        #HVSs.map(lambda x: x).collect()[i].pop(j)
+                        HVSs[i].pop(j)
+                        HVSs[interconnection[0]].append(iden)
+                        print iden
                     else:
                         j = j + 1
                 if len(vertexes) == 0:
-                    self.HVSs.pop(i)
+                    HVSs.pop(i)
+                    self.HVSs = sc.parallelize(HVSs)
                 else:
                     i = i + 1
+
 
     def similarityHVSs(self):
         change = True
@@ -201,17 +206,17 @@ class graph_operations:
             change = False
             pops = []
             for i in range(len(self.HVSs)):
-                hvs1 = self.HVSs[i]
+                hvs1 = self.HVSs.collect()[i]
                 j = i
-                while (j < len(self.HVSs)):
-                    hvs2 = self.HVSs[j]
+                while (j < self.HVSs.count()):
+                    hvs2 = self.HVSs.collect()[j]
                     intra_sim1 = self.getIntraSimilarity(hvs1)
                     intra_sim2 = self.getIntraSimilarity(hvs2)
                     inter_sim = self.getInterSimilarity(hvs1, hvs2)
                     if (inter_sim > intra_sim1 or inter_sim > intra_sim2):
                         # Unir ambos HVSs.
                         print ("entra")
-                        self.HVSs[i].extend(hvs2)
+                        self.HVSs.collect()[i].extend(hvs2)
                         pops.append(j)
                         change = True
                     j = j + 1
@@ -237,8 +242,8 @@ class graph_operations:
         result = []
         result.append(-1)
         result.append(-1)
-        for i in range(len(self.HVSs)):
-            connection = self.getConnectionWithHVS(iden, self.HVSs[i]);
+        for i in range(self.HVSs.count()):
+            connection = self.getConnectionWithHVS(iden, self.HVSs.collect()[i]);
             if (connection > max_connection):
                 max_connection = connection
                 max_position = i
@@ -377,12 +382,12 @@ class HVSConnectivityGenetic():
     def fitness(self, chromosome):
         accurancy = 0
         for i in range(0, len(chromosome)):
-            vertexes = self.graph_operations.get_HVSs()[i]
+            vertexes = self.graph_operations.get_HVSs().collect()[i]
             j = 0
             found = False
             while (j < len(vertexes) and not found):
                 iden = vertexes[j]
-                intraconnection = self.graph_operations.getConnectionWithHVS(iden, self.graph_operations.get_HVSs()[i])
+                intraconnection = self.graph_operations.getConnectionWithHVS(iden, self.graph_operations.get_HVSs().collect()[i])
                 interconnection = self.graph_operations.getMaxConnectionWithHVSs(iden, intraconnection)
                 if interconnection[0] != -1 and interconnection[1] != 0:
                     if chromosome[i].get_value()[0] == j:
@@ -399,7 +404,7 @@ class HVSConnectivityGenetic():
         return accurancy
 
     def get_optimal(self, position):
-        vertexes = self.graph_operations.get_HVSs()[position]
+        vertexes = self.graph_operations.get_HVSs().collect()[position]
         result = -1
         inter = -1
         j = 0
@@ -417,10 +422,10 @@ class HVSConnectivityGenetic():
                 j = j + 1
         return result, inter
 
-    def calculate_fitness(self, population):
+    def calculate_fitness(self,sc, population):
         values = []
-        values=population.map(lambda x:self.fitness(x)).collect()
-        for i in population:
+        #values=population.map(lambda x:self.fitness(x)).collect()
+        for i in population.collect():
             fit = self.fitness(i)
             values.append(fit)
             print values
@@ -539,7 +544,7 @@ class HVSConnectivityGenetic():
     def evolution(self,sc):
         completed = False
         population = self.init_population(sc)
-        fitness_values = self.calculate_fitness(population)
+        fitness_values = self.calculate_fitness(sc,population)
         while (self.counter < self.limit and not completed):
             if (self.completed_evolution(fitness_values)):
                 completed = True
@@ -560,7 +565,7 @@ class HVSConnectivityGenetic():
                     for i in range(0, len(parent1)):
                         result = result + parent1[i].__str__() + " "
                     print(result)
-                fitness_values = self.calculate_fitness(population)
+                fitness_values = self.calculate_fitness(sc,population)
                 self.counter = self.counter + 1
 
         parent, _ = self.get_fittest_individuals(population, fitness_values)
@@ -1005,7 +1010,7 @@ def read_graph(sc):
 
 def main():
     conf = SparkConf().setAppName("hhhhuh")
-    conf = SparkConf().setMaster("local[1]")
+    conf = SparkConf().setMaster("local[*]")
 
     sc = SparkContext(conf=conf)
     G = read_graph(sc)

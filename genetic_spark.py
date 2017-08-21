@@ -9,7 +9,7 @@ from node_values import node_values
 from numpy import sqrt
 from enum import Enum
 import findspark
-findspark.init("/media/hugo/Datos/Linux/spark/")
+findspark.init("/home/hfernandez/Documentos/Aplicaciones/spark-2.1.1-bin-hadoop2.7")
 from pyspark import SparkContext, SparkConf, Row
 
 from pyspark.mllib.linalg import DenseVector
@@ -314,9 +314,9 @@ class graph_operations:
     def getMoreSimilarHVS(self, iden):
         max_position = -1
         max_similarity = 0.0
-        for i in range(len(self.HVSs)):
+        for i in range(self.HVSs.count()):
             similarity = 0.0
-            vertexes = self.HVSs[i]
+            vertexes = self.HVSs.collect()[i]
             for j in range(len(vertexes)):
                 hv = vertexes[j]
                 hvnode = self.getNodeFromIden(hv)
@@ -460,17 +460,10 @@ class HVSConnectivityGenetic():
     def log_individual(self, child):
         self.children.append(child)
 
-    def reproduce(self, parent1, parent2):
+    def reproduce(self, parent1, parent2,sc):
         self.children = []
-
-
-        pool = mp.Pool()
-
-        for _ in range(0, self.size):
-            pool.apply_async(self.new_individual, args=(parent1, parent2,), callback=self.log_individual)
-        pool.close()
-
-        pool.join()
+        union = sc.parallelize(parent1 + parent2)
+        self.children=(union.map(lambda parent: self.new_individual(parent[0], parent[1])).collect())
 
     def crossover(self, parent1, parent2):
         child = []
@@ -544,13 +537,7 @@ class HVSConnectivityGenetic():
                 completed = True
             else:
                 parent1, parent2 = self.get_fittest_individuals(population, fitness_values)
-                union = sc.parallelize(parent1 + parent2)
-                #pool.apply_async(self.new_individual, args=(parent1, parent2,), callback=self.log_individual)
-                prueba1=[1,2,3,4]
-                self.children = []
-                self.children.append(union.map(lambda parent:self.new_individual(parent[0],parent[1])).collect())
-
-                self.reproduce(parent1, parent2)
+                self.reproduce(parent1, parent2, sc)
                 self.natural_selection(population, fitness_values)
                 if self.counter % 10 == 0:
                     print(
@@ -662,13 +649,10 @@ class HVSInternalGenetic():
     def log_individual(self, child):
         self.children.append(child)
 
-    def reproduce(self, parent1, parent2):
+    def reproduce(self, parent1, parent2, sc):
         self.children = []
-        pool = mp.Pool()
-        for _ in range(0, self.size):
-            pool.apply_async(self.new_individual, args=(parent1, parent2,), callback=self.log_individual)
-        pool.close()
-        pool.join()
+        union = sc.parallelize(parent1 + parent2)
+        self.children = (union.map(lambda parent: self.new_individual(parent[0], parent[1])).collect())
 
     def crossover(self, parent1, parent2):
         child = []
@@ -757,11 +741,9 @@ class HVSInternalGenetic():
                 completed = True
             else:
                 parent1, parent2 = self.get_fittest_individuals(population, fitness_values)
-                self.reproduce(parent1, parent2)
+                self.reproduce(parent1, parent2, sc)
                 self.natural_selection(population, fitness_values)
                 if self.counter % 10 == 0:
-                    print("assssssssssssssssssssssssss")
-
                     print(
                     "La precision en la generacion", self.counter, "es de", max(fitness_values), "sobre", self.target)
                     result = ""
@@ -801,10 +783,10 @@ class NonHubGenetic():
 
     def init_chromosome(self):
         count = self.graph_operations.get_HVSs().count()
-        chromosome = self.graph_operations.get_non_hub_vertexes().zipWithIndex().map(lambda x: node_values(x[0], rnd.randint(-1, count - 1)))
+        chromosome = self.graph_operations.get_non_hub_vertexes().zipWithIndex().map(lambda x: node_values(x[0][0], rnd.randint(-1, count - 1)))
         return chromosome
 
-    def fitness(self, chromo):
+    def fitness(self, chromo, sc):
         accurancy = 0
         for value in chromo:
             position = self.graph_operations.getMoreSimilarHVS(value.get_iden())
@@ -814,10 +796,10 @@ class NonHubGenetic():
 
     def calculate_fitness(self, population,sc):
         values = []
-        values=population.map(lambda x:self.fitness(x))
+        #values=population.map(lambda x:self.fitness(x))
         #values.append(self.fitness(rddPopulation.map(lambda x:x)))
-        for i in population:
-            fit = self.fitness(i)
+        for i in population.collect():
+            fit = self.fitness(i,sc)
             values.append(fit)
         return values
 
@@ -856,13 +838,10 @@ class NonHubGenetic():
     def log_individual(self, child):
         self.children.append(child)
 
-    def reproduce(self, parent1, parent2):
+    def reproduce(self, parent1, parent2, sc):
         self.children = []
-        pool = mp.Pool()
-        for _ in range(0, self.size):
-            pool.apply_async(self.new_individual, args=(parent1, parent2,), callback=self.log_individual)
-        pool.close()
-        pool.join()
+        union = sc.parallelize(parent1 + parent2)
+        self.children = (union.map(lambda parent: self.new_individual(parent[0], parent[1])).collect())
 
     def get_worst(self, values):
         target = self.target
@@ -930,7 +909,7 @@ class NonHubGenetic():
         for child in self.children:
             position = self.get_worst(values)
             if position != -1:
-                fit = self.fitness(child)
+                fit = self.fitness(child,sc)
                 if fit > values[position]:
                     population.pop(position)
                     population.append(child)
@@ -949,7 +928,7 @@ class NonHubGenetic():
                 completed = True
             else:
                 parent1, parent2 = self.get_fittest_individuals(population, fitness_values)
-                self.reproduce(parent1, parent2)
+                self.reproduce(parent1, parent2, sc)
                 self.natural_selection(population, fitness_values)
                 if self.counter % 10 == 0:
                     if self.artificial_mutation == True:
